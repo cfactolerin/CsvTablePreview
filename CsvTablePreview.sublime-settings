@@ -1,0 +1,9 @@
+{
+    "auto_preview": false,
+    "max_rows": 500,
+    "max_columns": 100,
+    "max_cell_width": 32,
+    "max_source_chars": 2000000,
+    "first_row_is_header": true,
+    "delimiter": null
+}

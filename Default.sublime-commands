@@ -1,0 +1,4 @@
+[
+    { "caption": "CSV: Open Table Preview", "command": "csv_table_preview_open" },
+    { "caption": "CSV: Toggle Table Preview", "command": "csv_table_preview_toggle" }
+]

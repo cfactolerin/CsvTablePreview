@@ -1,0 +1,4 @@
+[
+    { "keys": ["ctrl+alt+t"], "command": "csv_table_preview_toggle",
+      "context": [{ "key": "csv_table_preview_available", "operator": "equal", "operand": true }] }
+]
