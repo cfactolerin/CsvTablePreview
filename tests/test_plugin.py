@@ -185,6 +185,14 @@ class PluginTests(unittest.TestCase):
         source.change_count = lambda: 1
         source.show = lambda region: None
         source.window = lambda: types.SimpleNamespace(focus_view=lambda view: None)
+
+        def run_command(name, args):
+            self.assertEqual(name, "csv_table_preview_select_source")
+            command = self.plugin.CsvTablePreviewSelectSourceCommand()
+            command.view = source
+            command.run(None, **args)
+
+        source.run_command = run_command
         parsed = csv_model.parse_csv("a,b\nvalue,other", "example.csv", {})
         info = {"source": source, "model": parsed, "change_count": 1}
         self.plugin.PREVIEWS[source.id()] = info
@@ -193,7 +201,44 @@ class PluginTests(unittest.TestCase):
     def test_cell_click_selects_exact_source_field(self):
         source, info, selection = self.navigation_info()
         self.plugin.navigate(source.id(), "cell:1:1")
+        self.assertEqual(selection, [])
+        self.callbacks.pop(0)()
         self.assertEqual(selection, [info["model"]["spans"][1][1]])
+
+    def test_repeated_visible_cell_clicks_each_run_selection_command(self):
+        source, info, selection = self.navigation_info()
+        focused = []
+        selected_on_focus = []
+
+        def focus(view):
+            focused.append(view)
+            selected_on_focus.append(list(selection))
+
+        source.window = lambda: types.SimpleNamespace(focus_view=focus)
+        for row, column in ((1, 0), (1, 1), (0, 1), (0, 0), (1, 0)):
+            self.plugin.navigate(source.id(), "cell:{}:{}".format(row, column))
+            self.callbacks.pop(0)()
+            self.assertEqual(selection, [info["model"]["spans"][row][column]])
+        self.assertEqual(focused, [source] * 5)
+        self.assertEqual(selected_on_focus[0], [])
+        self.assertEqual(selected_on_focus[1], [info["model"]["spans"][1][0]])
+
+    def test_deferred_click_does_not_select_text_after_source_changes(self):
+        source, info, selection = self.navigation_info()
+        refreshed = []
+        self.plugin.schedule_refresh = lambda view: refreshed.append(view)
+        self.plugin.navigate(source.id(), "cell:1:1")
+        source.change_count = lambda: 2
+        self.callbacks.pop(0)()
+        self.assertEqual(selection, [])
+        self.assertEqual(refreshed, [source])
+
+    def test_deferred_click_is_ignored_after_preview_closes(self):
+        source, info, selection = self.navigation_info()
+        self.plugin.navigate(source.id(), "cell:1:1")
+        self.plugin.PREVIEWS.clear()
+        self.callbacks.pop(0)()
+        self.assertEqual(selection, [])
 
     def test_stale_click_refreshes_instead_of_selecting_wrong_text(self):
         source, info, selection = self.navigation_info()

@@ -195,10 +195,32 @@ def navigate(source_id, href):
             schedule_refresh(source)
             return
         start, end = model["spans"][row][column]
-        source.sel().clear()
-        source.sel().add(sublime.Region(start, end))
-        source.show(sublime.Region(start, end))
+        change_count = info["change_count"]
+
+        def select_source():
+            if PREVIEWS.get(source_id) is not info or not source.is_valid():
+                return
+            source.run_command("csv_table_preview_select_source", {
+                "start": start, "end": end, "change_count": change_count
+            })
+
+        # ST3 may not repaint an in-view selection changed inside a phantom callback.
+        sublime.set_timeout(select_source, 0)
+
+
+class CsvTablePreviewSelectSourceCommand(sublime_plugin.TextCommand):
+    def run(self, edit, start, end, change_count):
+        source = self.view
+        if source.id() not in PREVIEWS or not source.window():
+            return
+        if source.change_count() != change_count:
+            schedule_refresh(source)
+            return
         source.window().focus_view(source)
+        region = sublime.Region(start, end)
+        source.sel().clear()
+        source.sel().add(region)
+        source.show(region)
 
 
 def schedule_refresh(source, delay=0):
