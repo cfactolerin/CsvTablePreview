@@ -1,0 +1,4 @@
+[
+    { "caption": "CSV: Toggle Select & Copy Mode", "command": "csv_table_preview_copy_mode" },
+    { "caption": "CSV: Refresh Preview", "command": "csv_table_preview_refresh" }
+]

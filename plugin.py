@@ -7,7 +7,7 @@ import os
 import sublime
 import sublime_plugin
 
-from .csv_model import bounded_int, make_syntax, palette_for, parse_csv, render_preview
+from .csv_model import bounded_int, copy_text, make_syntax, palette_for, parse_csv, render_preview
 
 
 SETTINGS = "CsvTablePreview.sublime-settings"
@@ -79,26 +79,32 @@ def install_palette(source, info):
     apply_when_indexed()
 
 
-def install_syntax(source, info, delimiter):
+def install_syntax(source, info, delimiter, for_preview=False):
     syntax_text = make_syntax(delimiter)
     filename = "CsvTablePreview-{}-{}.sublime-syntax".format(
         binascii.hexlify(delimiter.encode("utf-8")).decode("ascii"),
         hashlib.sha256(syntax_text.encode("utf-8")).hexdigest()[:8])
     resource = "Packages/User/" + filename
-    if source.settings().get("syntax") == resource:
+    target = info["preview"] if for_preview else source
+    key = "copy_syntax" if for_preview else "syntax"
+    if target.settings().get("syntax") == resource:
         return
     path = os.path.join(sublime.packages_path(), "User", filename)
     if not os.path.exists(path):
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(syntax_text)
-    info["syntax"] = resource
+    info[key] = resource
 
     def apply_when_indexed(attempt=0):
-        if not source.is_valid() or PREVIEWS.get(source.id()) is not info or info.get("syntax") != resource:
+        if (not source.is_valid() or not target.is_valid()
+                or PREVIEWS.get(source.id()) is not info or info.get(key) != resource):
+            return
+        if for_preview and not info.get("copy_mode"):
             return
         if resource in sublime.find_resources(filename):
-            source.settings().set("csv_preview_original_syntax", info["previous_syntax"])
-            source.set_syntax_file(resource)
+            if not for_preview:
+                source.settings().set("csv_preview_original_syntax", info["previous_syntax"])
+            target.set_syntax_file(resource)
         elif attempt < 40:
             sublime.set_timeout(lambda: apply_when_indexed(attempt + 1), 100)
         else:
@@ -149,6 +155,9 @@ def draw_preview(info):
     model = info.get("model")
     if model is None:
         return
+    if info.get("copy_mode"):
+        draw_copy_preview(info)
+        return
     available = max(16, int((preview.viewport_extent()[0] - 44) / max(1, preview.em_width())))
     content, start, end = render_preview(
         model, os.path.basename(source.file_name() or "Untitled.csv"), options(),
@@ -162,12 +171,51 @@ def draw_preview(info):
     )])
 
 
+def draw_copy_preview(info):
+    preview = info["preview"]
+    info["phantoms"].update([])
+    if info["scheme"] in sublime.find_resources(os.path.basename(info["scheme"])):
+        preview.settings().set("color_scheme", info["scheme"])
+    install_syntax(info["source"], info, "\t", for_preview=True)
+    if "copy_change_count" not in info:
+        preview.run_command("csv_table_preview_replace_content", {
+            "content": copy_text(info["model"])
+        })
+        info["copy_change_count"] = info["change_count"]
+        info["copy_limited"] = (info["model"]["truncated_rows"]
+                                or info["model"]["truncated_columns"])
+    status = "Select & copy: drag to select, then Copy. Use CSV: Toggle Select & Copy Mode to return."
+    if info.get("copy_limited"):
+        status += " Preview limits apply."
+    if info["source"].change_count() != info["copy_change_count"]:
+        status += " Source changed; use CSV: Refresh Preview for updated text."
+    preview.set_status("csv_preview_copy", status)
+
+
+def set_copy_mode(info, enabled):
+    preview = info["preview"]
+    info["copy_mode"] = enabled
+    info.pop("copy_change_count", None)
+    info["phantoms"].update([])
+    if not enabled:
+        preview.run_command("csv_table_preview_replace_content", {"content": ""})
+        preview.set_syntax_file("Packages/Text/Plain text.tmLanguage")
+        preview.settings().set("color_scheme", info["previous_scheme"])
+        preview.erase_status("csv_preview_copy")
+    if info.get("error"):
+        apply_error(info["source"], info["error"])
+    else:
+        draw_preview(info)
+    if preview.window():
+        preview.window().focus_view(preview)
+
+
 def watch_sizes(epoch):
     if UNLOADING or not PREVIEWS or epoch != WATCH_EPOCH:
         return
     for info in list(PREVIEWS.values()):
         preview = info["preview"]
-        if preview.is_valid() and info.get("model") is not None:
+        if preview.is_valid() and info.get("model") is not None and not info.get("copy_mode"):
             available = max(16, int((preview.viewport_extent()[0] - 44) / max(1, preview.em_width())))
             if available != info.get("width"):
                 draw_preview(info)
@@ -180,7 +228,13 @@ def navigate(source_id, href):
         return
     if href == "close":
         info["preview"].close()
+    elif href == "select-copy":
+        def enable():
+            if PREVIEWS.get(source_id) is info and info["preview"].is_valid():
+                set_copy_mode(info, True)
+        sublime.set_timeout(enable, 0)
     elif href == "refresh":
+        info.pop("copy_change_count", None)
         schedule_refresh(info["source"])
     elif href.startswith("columns:"):
         info["column"] = int(href.split(":")[1])
@@ -223,6 +277,46 @@ class CsvTablePreviewSelectSourceCommand(sublime_plugin.TextCommand):
         source.show(region)
 
 
+class CsvTablePreviewReplaceContentCommand(sublime_plugin.TextCommand):
+    def run(self, edit, content):
+        self.view.set_read_only(False)
+        try:
+            self.view.replace(edit, sublime.Region(0, self.view.size()), content)
+        finally:
+            self.view.set_read_only(True)
+
+
+class CsvTablePreviewCopyModeCommand(sublime_plugin.TextCommand):
+    def run(self, edit):
+        source = source_for(self.view)
+        info = PREVIEWS.get(source.id()) if source else None
+        if info:
+            set_copy_mode(info, not info.get("copy_mode", False))
+
+    def is_enabled(self):
+        source = source_for(self.view)
+        return source is not None and source.id() in PREVIEWS
+
+    def is_visible(self):
+        return self.is_enabled()
+
+
+class CsvTablePreviewRefreshCommand(sublime_plugin.TextCommand):
+    def run(self, edit):
+        source = source_for(self.view)
+        info = PREVIEWS.get(source.id()) if source else None
+        if info:
+            info.pop("copy_change_count", None)
+            schedule_refresh(source)
+
+    def is_enabled(self):
+        source = source_for(self.view)
+        return source is not None and source.id() in PREVIEWS
+
+    def is_visible(self):
+        return self.is_enabled()
+
+
 def schedule_refresh(source, delay=0):
     if source.id() not in PREVIEWS:
         return
@@ -256,6 +350,7 @@ def schedule_refresh(source, delay=0):
                     apply_error(source, "Could not parse CSV: " + error)
                     return
                 info = PREVIEWS[source.id()]
+                info.pop("error", None)
                 info.update(model=model, change_count=change_count)
                 install_syntax(source, info, model["delimiter"])
                 draw_preview(info)
@@ -272,7 +367,13 @@ def apply_error(source, message):
     info = PREVIEWS.get(source.id())
     if info is None:
         return
+    info["error"] = message
     info["model"] = None
+    if info.get("copy_mode"):
+        if "copy_change_count" not in info:
+            info["preview"].run_command("csv_table_preview_replace_content", {"content": ""})
+        info["preview"].set_status("csv_preview_copy", message + " Use CSV: Refresh Preview to retry.")
+        return
     content = '<body><p>{}</p><a href="refresh">Refresh</a></body>'.format(html.escape(message))
     info["phantoms"].update([sublime.Phantom(sublime.Region(0), content,
                                             sublime.LAYOUT_BLOCK,
@@ -325,6 +426,7 @@ class CsvTablePreviewOpenCommand(sublime_plugin.TextCommand):
             "spell_check": False, "highlight_line": False, "draw_centered": False,
             "margin": 0, "font_face": "Menlo" if sublime.platform() == "osx" else "monospace",
             "font_size": 11,
+            "tab_size": 16, "translate_tabs_to_spaces": False,
         }.items():
             preview.settings().set(key, value)
         window.set_view_index(preview, target, len(window.views_in_group(target)) - 1)

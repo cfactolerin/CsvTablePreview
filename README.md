@@ -66,6 +66,26 @@ Columns are paged to fit the pane. Use **Next** and **Previous** above the table
 to see more columns. Quoted multiline cells display `↵`; long cells display `…`.
 Select the corresponding source field to read its full value.
 
+### Select and copy from the preview
+
+Click **Select & copy** above the rendered table, or run
+**CSV: Toggle Select & Copy Mode** from the command palette. The same right-hand
+pane switches to read-only, color-matched, tab-separated text. Drag to highlight
+text and use the normal Copy command (`Cmd+C` on macOS, `Ctrl+C` on Windows/Linux).
+You can also select everything to copy the table without the preview toolbar.
+
+This mode contains all columns and complete cell values within the preview
+limits, not just the current column page. Long values are not shortened.
+Fields containing tabs, line breaks, or quotes use TSV quoting, so complete
+rows can be pasted into a spreadsheet. The pane can scroll horizontally.
+
+The copy view is a snapshot so source edits do not replace text while you are
+selecting it. Use **CSV: Refresh Preview** to load updated values. The status bar
+shows when the source has changed or preview limits apply. Use
+**CSV: Toggle Select & Copy Mode** again to return to the rendered table. Both
+commands are also available in the editor's right-click menu when a preview is
+open.
+
 ## Settings
 
 Automatic preview is off by default. To open the preview automatically for CSV

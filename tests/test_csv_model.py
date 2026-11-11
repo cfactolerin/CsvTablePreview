@@ -1,4 +1,5 @@
 import csv
+import io
 import unittest
 
 import csv_model as model
@@ -87,6 +88,7 @@ class RenderTests(unittest.TestCase):
         self.assertIn("background-color:", content)
         self.assertNotIn("┌", content)
         self.assertEqual((start, end), (0, 2))
+        self.assertIn('href="select-copy"', content)
 
     def test_source_and_preview_palette_agree(self):
         content, _, _ = self.render("a,b\nx,y")
@@ -143,6 +145,34 @@ class RenderTests(unittest.TestCase):
         self.assertIn('    - match: "\\\\t"', syntax)
         self.assertNotIn("\r", syntax)
         self.assertNotIn("\t", syntax)
+
+
+class CopyTests(unittest.TestCase):
+    def test_copy_contains_data_only(self):
+        parsed = model.parse_csv("a,b\n1,2", "example.csv", {})
+        self.assertEqual(model.copy_text(parsed), "a\tb\n1\t2\n")
+
+    def test_copy_keeps_values_beyond_rendered_width(self):
+        value = "0000" + "1234567890" * 100
+        parsed = model.parse_csv("id,note\n" + value + ",hello", "example.csv", {})
+        self.assertIn(value, model.copy_text(parsed))
+        self.assertNotIn("…", model.copy_text(parsed))
+
+    def test_copy_roundtrips_tabs_quotes_and_line_endings(self):
+        rows = [["name", "note"], ["Alice", 'tab\there, "quoted"'],
+                ["Bob", "first\r\nsecond\nthird\rfourth"]]
+        text = model.copy_text({"rows": rows})
+        actual = list(csv.reader(io.StringIO(text, newline=""), delimiter="\t"))
+        self.assertEqual(actual, rows)
+
+    def test_copy_preserves_empty_and_ragged_rows(self):
+        rows = [["", ""], [], ["a"], ["b", "c", ""]]
+        text = model.copy_text({"rows": rows})
+        actual = list(csv.reader(io.StringIO(text, newline=""), delimiter="\t"))
+        self.assertEqual(actual, rows)
+
+    def test_empty_copy(self):
+        self.assertEqual(model.copy_text({"rows": []}), "")
 
 
 if __name__ == "__main__":

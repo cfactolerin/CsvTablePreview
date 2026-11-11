@@ -200,6 +200,18 @@ def column_page(model, settings, start, available_chars):
     return start, widths, start + len(widths)
 
 
+def copy_text(model):
+    output = io.StringIO(newline="")
+    # A CRLF writer quotes lone CRs in cells; replace only the record terminator.
+    writer = csv.writer(output, delimiter="\t", lineterminator="\r\n")
+    for row in model["rows"]:
+        writer.writerow(row)
+        output.seek(output.tell() - 2)
+        output.truncate()
+        output.write("\n")
+    return output.getvalue()
+
+
 def render_preview(model, filename, settings, colors, background, foreground,
                    start=0, available_chars=80, font_face="monospace"):
     start, widths, end = column_page(model, settings, start, available_chars)
@@ -224,6 +236,7 @@ def render_preview(model, filename, settings, colors, background, foreground,
     body.append('<div class="meta">{} &nbsp; Columns {}–{} of {} &nbsp; {}</div>'.format(
         previous, start + 1, end, model["columns"], following))
     body.append('<div class="meta">Read-only · click a cell to select its source · '
+                '<a href="select-copy">Select &amp; copy</a> · '
                 '<a href="refresh">Refresh</a> · <a href="close">Close preview</a></div>')
     if model["truncated_rows"] or model["truncated_columns"]:
         body.append('<div class="meta">Preview limit reached; the source is unchanged.</div>')

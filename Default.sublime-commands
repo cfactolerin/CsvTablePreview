@@ -1,4 +1,6 @@
 [
     { "caption": "CSV: Open Table Preview", "command": "csv_table_preview_open" },
-    { "caption": "CSV: Toggle Table Preview", "command": "csv_table_preview_toggle" }
+    { "caption": "CSV: Toggle Table Preview", "command": "csv_table_preview_toggle" },
+    { "caption": "CSV: Toggle Select & Copy Mode", "command": "csv_table_preview_copy_mode" },
+    { "caption": "CSV: Refresh Preview", "command": "csv_table_preview_refresh" }
 ]
